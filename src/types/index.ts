@@ -260,3 +260,51 @@ export interface AppSettings {
   agentLockTimeoutMinutes: number;
   restaurantName: string;
 }
+
+export interface ClosingBucket {
+  key: string;
+  label: string;
+  count: number;
+  amount?: number;
+}
+
+/** Numbers frozen at month-closing time (used to compare months without reloading old rows). */
+export interface MonthSnapshot {
+  month: string; // YYYY-MM
+  orders: { total: number; valid: number; voids: number; totalSales: number; voidAmount: number; avgOrderValue: number };
+  calls: { total: number; ok: number; problem: number; noAnswer: number; unavailable: number; callback: number };
+  contactedRate: number; // % of valid orders that got a call result
+  problems: {
+    total: number;
+    open: number;
+    resolved: number;
+    escalated: number;
+    callCenter: number;
+    restaurant: number;
+    avgResolutionHours: number;
+    byType: ClosingBucket[];
+  };
+  compensation: { total: number; pending: number; applied: number; byType: ClosingBucket[] };
+  voids: {
+    total: number;
+    resolved: number;
+    pending: number;
+    recovered: number;
+    recoveryRate: number;
+    byResponsible: ClosingBucket[];
+    byReason: ClosingBucket[];
+  };
+  byBranch: Array<{ branch: string; orders: number; voids: number; problems: number; sales: number }>;
+  byAgent: Array<{ agent: string; calls: number; problemsLogged: number }>;
+}
+
+export interface MonthlyClosing {
+  id: string;
+  month: string;
+  status: 'closed';
+  snapshot: MonthSnapshot;
+  carriedOver: { openProblems: number; pendingVoids: number; pendingCompensations: number };
+  notes?: string;
+  closedByName: string;
+  closedAt: string;
+}

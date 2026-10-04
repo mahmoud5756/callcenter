@@ -16,6 +16,7 @@ import { ProblemManagementView } from './components/problems/ProblemManagementVi
 import { CustomersView } from './components/customers/CustomersView';
 import { CustomerAssignmentView } from './components/assignment/CustomerAssignmentView';
 import { ReportsView } from './components/reports/ReportsView';
+import { MonthlyClosingView } from './components/closing/MonthlyClosingView';
 import { PosUploadView } from './components/upload/PosUploadView';
 import { AuditLogsView } from './components/admin/AuditLogsView';
 import { UsersSettingsView } from './components/admin/UsersSettingsView';
@@ -71,6 +72,8 @@ const MainLayout: React.FC = () => {
         return <CustomerAssignmentView />;
       case 'reports':
         return <ReportsView />;
+      case 'closing':
+        return <MonthlyClosingView />;
       case 'import':
         return <PosUploadView />;
       case 'audit':

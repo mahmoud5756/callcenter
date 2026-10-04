@@ -1,5 +1,6 @@
 import React from 'react';
 import { useApp, NavigationTab } from '../../context/AppContext';
+import { buildLinkedReorderSet, isVoidResolved } from '../../services/archiveRules';
 import {
   BarChartIcon,
   PhoneCallIcon,
@@ -12,6 +13,7 @@ import {
   ShieldIcon,
   SettingsIcon,
   ClockIcon,
+  CalendarIcon,
 } from '../icons/SvgIcons';
 
 interface NavItem {
@@ -30,8 +32,14 @@ export const Sidebar: React.FC = () => {
     currentUser,
     orders,
     voidOrders,
+    allOrders,
     problems,
   } = useApp();
+
+  const activeVoidCount = React.useMemo(() => {
+    const linked = buildLinkedReorderSet(allOrders);
+    return voidOrders.filter((o) => !isVoidResolved(o, linked)).length;
+  }, [voidOrders, allOrders]);
 
   const isPendingStatus = (o: { status: string }) =>
     o.status === 'pending' || o.status === 'callback_requested' || o.status === 'no_answer';
@@ -82,7 +90,7 @@ export const Sidebar: React.FC = () => {
       id: 'voids',
       label: 'الأوردرات الملغية (VOID)',
       icon: AlertTriangleIcon,
-      badge: voidOrders.length > 0 ? voidOrders.length : undefined,
+      badge: activeVoidCount > 0 ? activeVoidCount : undefined,
     },
     {
       id: 'problems',
@@ -106,6 +114,12 @@ export const Sidebar: React.FC = () => {
       id: 'reports',
       label: 'التقارير الإحصائية',
       icon: PieChartIcon,
+      roles: ['admin', 'manager'],
+    },
+    {
+      id: 'closing',
+      label: 'التقفيل الشهري والأرشيف',
+      icon: CalendarIcon,
       roles: ['admin', 'manager'],
     },
     {

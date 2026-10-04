@@ -22,10 +22,11 @@ import {
 } from '../icons/SvgIcons';
 import { Order, VoidFollowUpStatus } from '../../types';
 import { OrderItemsList } from '../common/OrderItemsList';
+import { buildLinkedReorderSet, isVoidResolved, formatMonthLabel, monthOf } from '../../services/archiveRules';
 
 export const VoidOrdersView: React.FC = () => {
   const {
-    voidOrders,
+    voidOrders: allVoidOrders,
     updateVoidDetails,
     exportCsvReport,
     allOrders,
@@ -38,6 +39,31 @@ export const VoidOrdersView: React.FC = () => {
   const [responsibleFilter, setResponsibleFilter] = useState<string>('all');
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [viewLayout, setViewLayout] = useState<'cards' | 'table'>('cards');
+
+  // Active = still needs follow-up. Archive = resolved (moved out of the live list).
+  const [scope, setScope] = useState<'active' | 'archive'>('active');
+  const [monthFilter, setMonthFilter] = useState<string>('all');
+
+  const linkedReorders = useMemo(() => buildLinkedReorderSet(allOrders), [allOrders]);
+  const activeVoids = useMemo(
+    () => allVoidOrders.filter((o) => !isVoidResolved(o, linkedReorders)),
+    [allVoidOrders, linkedReorders]
+  );
+  const archivedVoids = useMemo(
+    () => allVoidOrders.filter((o) => isVoidResolved(o, linkedReorders)),
+    [allVoidOrders, linkedReorders]
+  );
+  const archiveMonths = useMemo(
+    () => Array.from(new Set(archivedVoids.map((o) => monthOf(o.orderDate)).filter(Boolean))).sort().reverse(),
+    [archivedVoids]
+  );
+  const voidOrders = useMemo(
+    () =>
+      scope === 'active'
+        ? activeVoids
+        : archivedVoids.filter((o) => monthFilter === 'all' || monthOf(o.orderDate) === monthFilter),
+    [scope, activeVoids, archivedVoids, monthFilter]
+  );
 
   // Modal State for Investigating & Following up with Customer
   const [investigatingOrder, setInvestigatingOrder] = useState<Order | null>(null);
@@ -206,7 +232,7 @@ export const VoidOrdersView: React.FC = () => {
     }
   };
 
-  if (voidOrders.length === 0) {
+  if (allVoidOrders.length === 0) {
     return (
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-12 text-center max-w-xl mx-auto my-12">
         <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 shadow-xs">
@@ -224,6 +250,39 @@ export const VoidOrdersView: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Active / Archive switch - resolved voids move to the archive, away from new ones */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-2 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setScope('active')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+            scope === 'active' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          تحتاج متابعة ({activeVoids.length})
+        </button>
+        <button
+          onClick={() => setScope('archive')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+            scope === 'archive' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          أرشيف المحلولة ({archivedVoids.length})
+        </button>
+        {scope === 'archive' && archiveMonths.length > 0 && (
+          <select
+            value={monthFilter}
+            onChange={(e) => setMonthFilter(e.target.value)}
+            className="mr-auto px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
+          >
+            <option value="all">كل الشهور</option>
+            {archiveMonths.map((m) => (
+              <option key={m} value={m}>
+                {formatMonthLabel(m)}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
       {/* Top Banner & KPI Cards */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-100">

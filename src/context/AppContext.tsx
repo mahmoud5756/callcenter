@@ -82,6 +82,7 @@ export type NavigationTab =
   | 'customers'
   | 'assignment'
   | 'reports'
+  | 'closing'
   | 'import'
   | 'audit'
   | 'users'
@@ -856,7 +857,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: 'هذا البريد مسجل بالفعل' };
       }
 
+      let confirmFailed = false;
       if (data.user) {
+        // Supabase requires email confirmation by default -> the new employee could not log in
+        // ("Email not confirmed"). The admin is creating the account, so confirm it right away.
+        const { error: confirmErr } = await supabase.rpc('admin_confirm_user', { target_user_id: data.user.id });
+        if (confirmErr) {
+          console.warn('admin_confirm_user failed:', confirmErr.message);
+          confirmFailed = true;
+        }
+
         const { error: upsertErr } = await supabase.from('profiles').upsert({
           id: data.user.id,
           name: name.trim(),
@@ -874,6 +884,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       await fetchData();
       addAuditLog('إضافة مستخدم جديد', 'مستخدم', `تمت إضافة المستخدم ${name} بدور ${role}`);
+      if (confirmFailed) {
+        return {
+          success: false,
+          error: 'تم إنشاء الحساب لكنه لسه مش مفعّل للدخول. شغّل ملف db/auth_fix.sql مرة واحدة في Supabase ثم أعد المحاولة أو فعّل الحساب من Authentication.',
+        };
+      }
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'تعذر إضافة المستخدم' };
@@ -1607,12 +1623,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     try {
-      await supabase
+      // Persist the whole follow-up (status / responsible / notes) so it survives a refresh.
+      const { error } = await supabase
         .from('orders')
         .update({
           void_reason: reason,
+          void_responsible: responsible,
+          void_follow_up_status: followUpStatus || 'resolved',
+          void_notes: notes ?? null,
+          void_followed_up_at: new Date().toISOString(),
+          void_followed_up_by: currentUser?.id || null,
         })
         .eq('id', orderId);
+      if (error) {
+        // DB migration (db/month_closing.sql) not applied yet -> keep the old behaviour so nothing breaks.
+        console.warn('Void follow-up columns missing, saving reason only:', error.message);
+        await supabase.from('orders').update({ void_reason: reason }).eq('id', orderId);
+      }
     } catch (e) {
       console.warn('Update void details in DB failed:', e);
     }

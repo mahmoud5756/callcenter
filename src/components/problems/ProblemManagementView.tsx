@@ -23,6 +23,7 @@ import { formatCompensationType } from '../../services/compensationHelpers';
 import { formatProblemType, cleanBranchName } from '../../services/problemLabels';
 import { ProblemDetailModal } from './ProblemDetailModal';
 import { groupProblems } from '../../services/problemGroups';
+import { isProblemResolved, formatMonthLabel, monthOf } from '../../services/archiveRules';
 
 export const ProblemManagementView: React.FC = () => {
   const {
@@ -56,6 +57,23 @@ export const ProblemManagementView: React.FC = () => {
   // One ticket = one complaint (may contain several problems)
   const groups = useMemo(() => groupProblems(problems), [problems]);
 
+  // Active = still needs work. Archive = fully resolved tickets (moved away from the live list).
+  const [scope, setScope] = useState<'active' | 'archive'>('active');
+  const [monthFilter, setMonthFilter] = useState<string>('all');
+  const activeGroups = useMemo(() => groups.filter((g) => !g.items.every(isProblemResolved)), [groups]);
+  const archivedGroups = useMemo(() => groups.filter((g) => g.items.every(isProblemResolved)), [groups]);
+  const archiveMonths = useMemo(
+    () => Array.from(new Set(archivedGroups.map((g) => monthOf(g.primary.createdAt)).filter(Boolean))).sort().reverse(),
+    [archivedGroups]
+  );
+  const scopedGroups = useMemo(
+    () =>
+      scope === 'active'
+        ? activeGroups
+        : archivedGroups.filter((g) => monthFilter === 'all' || monthOf(g.primary.createdAt) === monthFilter),
+    [scope, activeGroups, archivedGroups, monthFilter]
+  );
+
   const escalatedCount = useMemo(
     () => groups.filter((g) => g.items.some((p) => p.status === 'escalated' || (p.status === 'open' && p.isEscalated))).length,
     [groups]
@@ -70,22 +88,6 @@ export const ProblemManagementView: React.FC = () => {
     () => groups.filter((g) => g.items.some((p) => p.compensationStatus === 'compensated' || p.status === 'compensated')).length,
     [groups]
   );
-
-  if (problems.length === 0) {
-    return (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center max-w-2xl mx-auto my-8">
-        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-          <CheckCircleIcon size={32} />
-        </div>
-        <h3 className="text-lg font-bold text-slate-800 mb-1">
-          لا توجد مشاكل مسجلة حتى الآن
-        </h3>
-        <p className="text-slate-500 text-xs">
-          عند تسجيل أي مشكلة أثناء مكالمات المتابعة (سواء كول سنتر أو مطعم)، ستظهر هنا فوراً لمتابعة حلها مع الإدارة والفروع.
-        </p>
-      </div>
-    );
-  }
 
   const branches = useMemo(() => {
     const set = new Set<string>();
@@ -131,8 +133,8 @@ export const ProblemManagementView: React.FC = () => {
 
       return matchSearch && matchSource && matchStatus && matchBranch;
     };
-    return groups.filter((g) => g.items.some(matches));
-  }, [groups, dualKeys, searchTerm, sourceFilter, statusFilter, branchFilter]);
+    return scopedGroups.filter((g) => g.items.some(matches));
+  }, [scopedGroups, dualKeys, searchTerm, sourceFilter, statusFilter, branchFilter]);
 
   const handleConfirmCompensation = () => {
     if (!executingCompensationProblem) return;
@@ -186,8 +188,60 @@ export const ProblemManagementView: React.FC = () => {
     }
   };
 
+  if (problems.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center max-w-2xl mx-auto my-8">
+        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+          <CheckCircleIcon size={32} />
+        </div>
+        <h3 className="text-lg font-bold text-slate-800 mb-1">
+          لا توجد مشاكل مسجلة حتى الآن
+        </h3>
+        <p className="text-slate-500 text-xs">
+          عند تسجيل أي مشكلة أثناء مكالمات المتابعة (سواء كول سنتر أو مطعم)، ستظهر هنا فوراً لمتابعة حلها مع الإدارة والفروع.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Active / Archive switch - resolved tickets move to the archive */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => { setScope('active'); setStatusFilter('all'); }}
+          className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+            scope === 'active' ? 'bg-red-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          تذاكر تحتاج متابعة ({activeGroups.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => { setScope('archive'); setStatusFilter('all'); }}
+          className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+            scope === 'archive' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          أرشيف المحلولة ({archivedGroups.length})
+        </button>
+        {scope === 'archive' && archiveMonths.length > 0 && (
+          <select
+            value={monthFilter}
+            onChange={(e) => setMonthFilter(e.target.value)}
+            className="mr-auto px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
+          >
+            <option value="all">كل الشهور</option>
+            {archiveMonths.map((m) => (
+              <option key={m} value={m}>
+                {formatMonthLabel(m)}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
       {/* Urgent Escalated Problems Alert for Managers */}
       {escalatedCount > 0 && (
         <div className="bg-gradient-to-r from-red-600 to-rose-700 text-white p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg border border-red-500 animate-pulse">
@@ -258,7 +312,7 @@ export const ProblemManagementView: React.FC = () => {
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            جميع التذاكر ({groups.length})
+            جميع التذاكر ({scopedGroups.length})
           </button>
 
           <button

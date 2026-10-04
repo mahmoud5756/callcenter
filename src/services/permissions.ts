@@ -4,6 +4,7 @@ import type { UserRole } from '../types';
 const TAB_ROLES: Record<string, UserRole[]> = {
   assignment: ['admin', 'manager'],
   reports: ['admin', 'manager'],
+  closing: ['admin', 'manager'],
   import: ['admin', 'manager'],
   audit: ['admin'],
   settings: ['admin'],
