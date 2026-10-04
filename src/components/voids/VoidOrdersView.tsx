@@ -22,7 +22,7 @@ import {
 } from '../icons/SvgIcons';
 import { Order, VoidFollowUpStatus } from '../../types';
 import { OrderItemsList } from '../common/OrderItemsList';
-import { buildLinkedReorderSet, isVoidResolved, formatMonthLabel, monthOf } from '../../services/archiveRules';
+import { buildLinkedReorderSet, findReorderFor, isVoidResolved, formatMonthLabel, monthOf } from '../../services/archiveRules';
 
 export const VoidOrdersView: React.FC = () => {
   const {
@@ -85,22 +85,16 @@ export const VoidOrdersView: React.FC = () => {
   }, [voidOrders]);
 
   // Find if recovered by a re-order
-  const getReorderInfo = (voidOrder: Order) => {
-    return allOrders.find(
-      (o) =>
-        !o.isVoid &&
-        (o.replacementForOrderId === voidOrder.id ||
-          (o.customerPhone === voidOrder.customerPhone && o.id !== voidOrder.id))
-    );
-  };
+  const getReorderInfo = (voidOrder: Order) => findReorderFor(voidOrder, allOrders);
 
   // KPIs
-  const totalVoidCount = voidOrders.length;
-  const totalLostAmount = voidOrders.reduce((acc, o) => acc + (o.totalAmount || 0), 0);
-  const recoveredCount = voidOrders.filter((o) => getReorderInfo(o) || o.voidFollowUpStatus === 'recovered').length;
-  const pendingFollowUpCount = voidOrders.filter(
-    (o) => !o.voidFollowUpStatus || o.voidFollowUpStatus === 'pending'
+  // KPIs are computed over ALL voids (active + archive) so recovered customers never "disappear"
+  const totalVoidCount = allVoidOrders.length;
+  const totalLostAmount = allVoidOrders.reduce((acc, o) => acc + (o.totalAmount || 0), 0);
+  const recoveredCount = allVoidOrders.filter(
+    (o) => linkedReorders.has(o.id) || o.voidFollowUpStatus === 'recovered'
   ).length;
+  const pendingFollowUpCount = activeVoids.length;
 
   // Filtered voids
   const filteredVoids = useMemo(() => {
@@ -336,13 +330,16 @@ export const VoidOrdersView: React.FC = () => {
             <span className="text-3xs text-rose-400 mt-0.5 block">إجمالي مبالغ الطلبات</span>
           </div>
 
-          <div className="bg-emerald-50/60 p-3.5 rounded-2xl border border-emerald-200/80">
+          <div
+            onClick={() => { setScope('archive'); setStatusFilter('all'); }}
+            className="bg-emerald-50/60 p-3.5 rounded-2xl border border-emerald-200/80 cursor-pointer hover:bg-emerald-50 transition-colors"
+          >
             <span className="text-2xs font-bold text-emerald-800">عملاء تم استرجاعهم</span>
             <div className="text-lg sm:text-xl font-bold text-emerald-700 mt-0.5 font-mono">
               {recoveredCount}
             </div>
             <span className="text-3xs text-emerald-600 mt-0.5 block font-bold">
-              طلبوا أوردر بديل بنجاح
+              طلبوا أوردر بديل - اضغط لعرضهم في الأرشيف
             </span>
           </div>
 
