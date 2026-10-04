@@ -21,6 +21,7 @@ import { ZeroState } from '../common/ZeroState';
 import { Problem, ProblemStatus } from '../../types';
 import { formatCompensationType } from '../../services/compensationHelpers';
 import { formatProblemType, cleanBranchName } from '../../services/problemLabels';
+import { ProblemDetailModal } from './ProblemDetailModal';
 
 export const ProblemManagementView: React.FC = () => {
   const {
@@ -45,9 +46,7 @@ export const ProblemManagementView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [branchFilter, setBranchFilter] = useState<string>('all');
 
-  const [resolvingProblem, setResolvingProblem] = useState<Problem | null>(null);
-  const [targetStatus, setTargetStatus] = useState<ProblemStatus>('resolved');
-  const [resolutionNotes, setResolutionNotes] = useState<string>('');
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const [executingCompensationProblem, setExecutingCompensationProblem] = useState<Problem | null>(null);
   const [execAppliedOrderNumber, setExecAppliedOrderNumber] = useState<string>('');
@@ -126,23 +125,6 @@ export const ProblemManagementView: React.FC = () => {
       return matchSearch && matchSource && matchStatus && matchBranch;
     });
   }, [problems, dualKeys, searchTerm, sourceFilter, statusFilter, branchFilter]);
-
-  const openResolveModal = (problem: Problem) => {
-    setResolvingProblem(problem);
-    setTargetStatus(problem.status === 'open' || problem.status === 'escalated' ? 'in_progress' : 'resolved');
-    setResolutionNotes(problem.resolutionNotes || '');
-  };
-
-  const handleSaveResolution = async () => {
-    if (!resolvingProblem) return;
-    const isFinal = targetStatus === 'resolved' || targetStatus === 'closed';
-    if (isFinal && !resolutionNotes.trim()) {
-      window.alert('اكتب تفاصيل الحل قبل الحفظ');
-      return;
-    }
-    const ok = await updateProblemStatus(resolvingProblem.id, targetStatus, resolutionNotes.trim() || undefined);
-    if (ok) setResolvingProblem(null);
-  };
 
   const handleConfirmCompensation = () => {
     if (!executingCompensationProblem) return;
@@ -399,100 +381,56 @@ export const ProblemManagementView: React.FC = () => {
           <table className="w-full text-right text-xs">
             <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
               <tr>
-                <th className="p-3.5">الأوردر والعميل</th>
+                <th className="p-3.5">العميل والأوردر</th>
                 <th className="p-3.5">الفرع</th>
-                <th className="p-3.5">مصدر المشكلة</th>
-                <th className="p-3.5">نوع المشكلة والتفاصيل</th>
+                <th className="p-3.5">المصدر</th>
+                <th className="p-3.5">المشكلة</th>
                 <th className="p-3.5">الحالة</th>
-                <th className="p-3.5">مسؤول الحل / الملاحظات</th>
-                <th className="p-3.5">تاريخ التسجيل</th>
-                <th className="p-3.5 text-center">تحديث الحالة</th>
+                <th className="p-3.5">التعويض</th>
+                <th className="p-3.5">التاريخ</th>
+                <th className="p-3.5 w-8"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredProblems.map((problem) => {
                 const statusBadge = getStatusBadge(problem.status, problem.isEscalated);
+                const compPending =
+                  problem.status === 'pending_compensation' || problem.compensationStatus === 'pending_compensation';
+                const compDone = problem.compensationStatus === 'compensated' || problem.status === 'compensated';
 
                 return (
-                  <tr key={problem.id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr
+                    key={problem.id}
+                    onClick={() => setDetailId(problem.id)}
+                    className="hover:bg-red-50/40 transition-colors cursor-pointer"
+                    title="اضغط لفتح تفاصيل التذكرة"
+                  >
                     <td className="p-3.5">
                       <div className="font-bold text-slate-900">{problem.customerName}</div>
                       <div className="text-2xs text-slate-500 font-mono">
-                        #{problem.orderNumber} • <span dir="ltr">{problem.customerPhone}</span>
+                        {problem.orderNumber ? `#${problem.orderNumber} • ` : ''}
+                        <span dir="ltr">{problem.customerPhone}</span>
                       </div>
                     </td>
 
-                    <td className="p-3.5 font-bold text-slate-700">
-                      فرع {cleanBranchName(problem.branchName)}
-                    </td>
+                    <td className="p-3.5 font-bold text-slate-700">فرع {cleanBranchName(problem.branchName)}</td>
 
                     <td className="p-3.5">
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-2xs font-extrabold ${
-                          problem.source === 'call_center'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-orange-100 text-orange-800'
+                          problem.source === 'call_center' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
                         }`}
                       >
-                        {problem.source === 'call_center' ? (
-                          <>
-                            <HeadsetIcon size={12} />
-                            <span>كول سنتر</span>
-                          </>
-                        ) : (
-                          <>
-                            <UtensilsIcon size={12} />
-                            <span>مطعم / فرع</span>
-                          </>
-                        )}
+                        {problem.source === 'call_center' ? <HeadsetIcon size={12} /> : <UtensilsIcon size={12} />}
+                        <span>{problem.source === 'call_center' ? 'كول سنتر' : 'مطعم / فرع'}</span>
                       </span>
                     </td>
 
-                    <td className="p-3.5 max-w-sm [overflow-wrap:anywhere]">
-                      <div className="font-bold text-slate-900 text-xs sm:text-sm">
-                        {formatProblemType(problem.type)}
-                      </div>
-                      <p className={`text-2xs mt-0.5 whitespace-pre-wrap ${problem.details === 'بدون تفاصيل' ? 'text-slate-400 italic' : 'text-slate-600'}`}>
-                        {problem.details === 'بدون تفاصيل' ? 'لم تُسجَّل تفاصيل للمشكلة' : problem.details}
+                    <td className="p-3.5 max-w-xs">
+                      <div className="font-bold text-slate-900">{formatProblemType(problem.type)}</div>
+                      <p className="text-2xs text-slate-500 truncate max-w-[16rem]">
+                        {problem.details === 'بدون تفاصيل' ? 'بدون تفاصيل' : problem.details}
                       </p>
-
-                      {problem.resolutionNotes && (
-                        <div className="mt-1.5 p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-2xs text-emerald-900">
-                          <div className="font-black">تفاصيل الحل</div>
-                          <div className="font-medium whitespace-pre-wrap [overflow-wrap:anywhere]">{problem.resolutionNotes}</div>
-                          {problem.resolvedByUserName && (
-                            <div className="text-3xs text-emerald-700 mt-0.5">
-                              {problem.resolvedByUserName}
-                              {problem.resolvedAt ? ` · ${new Date(problem.resolvedAt).toLocaleString('ar-EG')}` : ''}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {(problem.oldOrderNumber || problem.newOrderNumber) && (
-                        <div className="mt-1 text-3xs font-mono font-bold text-slate-600">
-                          {problem.oldOrderNumber && `الأوردر القديم #${problem.oldOrderNumber}`}
-                          {problem.newOrderNumber && ` ← الجديد #${problem.newOrderNumber}`}
-                        </div>
-                      )}
-
-                      {/* Compensation Details Badge if present */}
-                      {(problem.hasCompensation || problem.compensationType) && (
-                        <div className="mt-1.5 p-2 bg-purple-50/90 border border-purple-200 rounded-xl text-2xs text-purple-900">
-                          <div className="font-black flex items-center gap-1 text-purple-950">
-                            <SparklesIcon size={12} className="text-purple-700 shrink-0" />
-                            <span>التعويض: {formatCompensationType(problem.compensationType)}</span>
-                          </div>
-                          <div className="text-purple-800 mt-0.5 font-medium [overflow-wrap:anywhere]">
-                            {problem.compensationDetails || 'بدون تفاصيل إضافية'}
-                          </div>
-                          {problem.compensationAppliedOrderNumber && (
-                            <div className="text-3xs text-purple-700 font-mono mt-0.5 font-bold">
-                              تم التطبيق على أوردر: #{problem.compensationAppliedOrderNumber}
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </td>
 
                     <td className="p-3.5">
@@ -504,52 +442,30 @@ export const ProblemManagementView: React.FC = () => {
                     </td>
 
                     <td className="p-3.5">
-                      {problem.resolvedByUserName ? (
-                        <div className="text-2xs text-slate-700">
-                          <span className="font-bold">{problem.resolvedByUserName}</span>
-                          {problem.resolvedAt && (
-                            <p className="text-slate-500">
-                              {new Date(problem.resolvedAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-2xs text-slate-400">
-                          {problem.compensationStatus === 'pending_compensation'
-                            ? 'بانتظار تنفيذ التعويض'
-                            : 'قيد المتابعة'}
+                      {problem.hasCompensation || problem.compensationType ? (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-extrabold border ${
+                            compDone
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : compPending
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-purple-50 text-purple-800 border-purple-200'
+                          }`}
+                        >
+                          <SparklesIcon size={11} />
+                          {compDone ? 'اتنفّذ' : compPending ? 'معلّق' : 'مسجّل'}
                         </span>
+                      ) : (
+                        <span className="text-2xs text-slate-300">—</span>
                       )}
                     </td>
 
                     <td className="p-3.5 text-2xs text-slate-500">
                       <div>{new Date(problem.createdAt).toLocaleDateString('ar-EG')}</div>
-                      <div>بواسطة: {problem.compensationPromisedByUserName || problem.reportedByUserName}</div>
+                      <div className="truncate max-w-[7rem]">{problem.reportedByUserName}</div>
                     </td>
 
-                    <td className="p-3.5 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {(problem.status === 'pending_compensation' || problem.compensationStatus === 'pending_compensation') && (
-                          <button
-                            type="button"
-                            onClick={() => setExecutingCompensationProblem(problem)}
-                            className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-300 hover:from-amber-300 hover:to-amber-200 text-slate-950 font-black text-3xs rounded-lg shadow-xs cursor-pointer transition-all active:scale-95 flex items-center gap-1 whitespace-nowrap border border-amber-300"
-                            title="تأكيد استلام العميل للتعويض وإغلاق الدورة"
-                          >
-                            <CheckIcon size={12} />
-                            <span>تأكيد استلام التعويض</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => openResolveModal(problem)}
-                          className="p-1.5 text-slate-500 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                          title="تحديث حالة التذكرة والإجراء"
-                        >
-                          <EditIcon size={16} />
-                        </button>
-                      </div>
-                    </td>
+                    <td className="p-3.5 text-slate-300">‹</td>
                   </tr>
                 );
               })}
@@ -558,110 +474,19 @@ export const ProblemManagementView: React.FC = () => {
         </div>
       </div>
 
-      {/* Resolve / Update Modal */}
-      {resolvingProblem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-slate-900 text-base">
-                تحديث حالة المشكلة (أوردر #{resolvingProblem.orderNumber})
-              </h3>
-              <button
-                onClick={() => setResolvingProblem(null)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
-              >
-                <XIcon size={20} />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                تغيير حالة التذكرة:
-              </label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setTargetStatus('in_progress')}
-                  className={`p-2 rounded-lg font-bold border transition-colors cursor-pointer ${
-                    targetStatus === 'in_progress'
-                      ? 'bg-amber-500 text-white border-amber-600'
-                      : 'bg-slate-50 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  قيد المتابعة
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTargetStatus('resolved')}
-                  className={`p-2 rounded-lg font-bold border transition-colors cursor-pointer ${
-                    targetStatus === 'resolved'
-                      ? 'bg-emerald-600 text-white border-emerald-700'
-                      : 'bg-slate-50 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  تم الحل والتعويض
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTargetStatus('open')}
-                  className={`p-2 rounded-lg font-bold border transition-colors cursor-pointer ${
-                    targetStatus === 'open'
-                      ? 'bg-red-600 text-white border-red-700'
-                      : 'bg-slate-50 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  مفتوحة
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTargetStatus('closed')}
-                  className={`p-2 rounded-lg font-bold border transition-colors cursor-pointer ${
-                    targetStatus === 'closed'
-                      ? 'bg-slate-700 text-white border-slate-800'
-                      : 'bg-slate-50 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  إغلاق التذكرة
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                الإجراء المتخذ وتفاصيل الحل:
-              </label>
-              <textarea
-                value={resolutionNotes}
-                onChange={(e) => setResolutionNotes(e.target.value)}
-                placeholder="اكتب ما تم الاتفاق عليه مع الفرع / العميل (مثال: تم إرسال الصنف الناقص + حلوى مجاناً والعميل راضٍ)..."
-                rows={3}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setResolvingProblem(null)}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveResolution}
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow cursor-pointer"
-              >
-                حفظ التحديث
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Big ticket detail card */}
+      {detailId && (
+        <ProblemDetailModal
+          problemId={detailId}
+          onClose={() => setDetailId(null)}
+          onConfirmCompensation={(p) => setExecutingCompensationProblem(p)}
+          getBadge={getStatusBadge}
+        />
       )}
 
       {/* Confirmation Dialog for Executing Compensation (Closing the Loop) */}
       {executingCompensationProblem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-purple-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-purple-100 pb-3">
               <div className="flex items-center gap-2">

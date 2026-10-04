@@ -22,46 +22,21 @@ import {
 import {
   CallResult,
   ProblemSource,
-  CallCenterProblemType,
-  RestaurantProblemType,
-  CompensationType,
   Problem,
 } from '../../types';
 import { generateSmartCallScript } from '../../services/algorithms';
 import { formatItemName } from '../../services/arabicItemFixer';
 import { findCustomerProblems } from '../../services/customerHistory';
 import { CustomerProblemHistory } from '../customers/CustomerProblemHistory';
+import { formatCompensationType } from '../../services/compensationHelpers';
+import { CompensationPicker } from '../common/CompensationPicker';
+import { ProblemTypePicker, ProblemItem } from '../common/ProblemTypePicker';
 import {
-  COMPENSATION_TYPES,
-  formatCompensationType,
-} from '../../services/compensationHelpers';
-
-const CALL_CENTER_PROBLEMS: { id: CallCenterProblemType; label: string }[] = [
-  { id: 'order_wrong', label: 'الطلب اتسجل غلط بالكامل' },
-  { id: 'item_wrong', label: 'صنف اتسجل غلط' },
-  { id: 'quantity_wrong', label: 'الكمية اتسجلت غلط' },
-  { id: 'address_wrong', label: 'العنوان اتسجل غلط' },
-  { id: 'phone_wrong', label: 'رقم الهاتف اتسجل غلط' },
-  { id: 'note_missed', label: 'ملاحظة العميل لم يتم تسجيلها' },
-  { id: 'unavailable_confirmed', label: 'تم تأكيد صنف غير متاح' },
-  { id: 'communication_issue', label: 'مشكلة في أسلوب التواصل مع العميل' },
-  { id: 'other', label: 'أخرى (اكتب التفاصيل)' },
-];
-
-const RESTAURANT_PROBLEMS: { id: RestaurantProblemType; label: string }[] = [
-  { id: 'item_missing', label: 'صنف ناقص في الطلب' },
-  { id: 'item_wrong', label: 'صنف غلط مستلم' },
-  { id: 'addon_missed', label: 'إضافة لم يتم تنفيذها' },
-  { id: 'removal_missed', label: 'إزالة صنف/مكون لم تنفذ' },
-  { id: 'mismatched_order', label: 'الطلب غير مطابق لما تم طلبه' },
-  { id: 'food_quality', label: 'مستوى وجودة الأكل غير مرضية' },
-  { id: 'food_cold', label: 'الأكل وصل بارد' },
-  { id: 'insufficient_quantity', label: 'الكمية وحجم الحصة غير كافية' },
-  { id: 'packaging_issue', label: 'مشكلة في التغليف والتقفيل' },
-  { id: 'preparation_delay', label: 'تأخير كبير في تجهيز الطلب' },
-  { id: 'bill_issue', label: 'مشكلة في حساب الفاتورة والسعر' },
-  { id: 'other', label: 'أخرى (اكتب التفاصيل)' },
-];
+  CompensationChoice,
+  EMPTY_COMPENSATION,
+  resolveCompensation,
+  useCompensationOptions,
+} from '../../services/compensationCatalog';
 
 export const CustomerCallModal: React.FC = () => {
   const {
@@ -80,16 +55,14 @@ export const CustomerCallModal: React.FC = () => {
 
   const savingRef = useRef(false);
   const [callResult, setCallResult] = useState<CallResult | null>(null);
-  const [problemSource, setProblemSource] = useState<ProblemSource | 'both' | null>(null);
-  const [problemTypeRest, setProblemTypeRest] = useState<string>('');
+  const [problemItems, setProblemItems] = useState<ProblemItem[]>([]);
   const [resolutionHow, setResolutionHow] = useState<string>('');
   const [oldOrderNumber, setOldOrderNumber] = useState<string>('');
   const [newOrderNumber, setNewOrderNumber] = useState<string>('');
-  const [problemType, setProblemType] = useState<string>('');
   const [problemDetails, setProblemDetails] = useState<string>('');
   const [problemResolutionMode, setProblemResolutionMode] = useState<'resolved_on_call' | 'escalated' | null>(null);
-  const [compensationType, setCompensationType] = useState<CompensationType | ''>('');
-  const [compensationDetails, setCompensationDetails] = useState<string>('');
+  const [compChoice, setCompChoice] = useState<CompensationChoice>(EMPTY_COMPENSATION);
+  const compCatalog = useCompensationOptions();
   const [executingCompensationProblem, setExecutingCompensationProblem] = useState<Problem | null>(null);
   const [execAppliedOrderNumber, setExecAppliedOrderNumber] = useState<string>('');
   const [execNotes, setExecNotes] = useState<string>('');
@@ -104,20 +77,23 @@ export const CustomerCallModal: React.FC = () => {
 
   const order = allOrders.find((o) => o.id === activeCallModalOrderId);
 
+  // Derived from the multi-select: which side(s) the selected problems belong to
+  const hasCcProblem = problemItems.some((i) => i.source === 'call_center');
+  const hasRestProblem = problemItems.some((i) => i.source === 'restaurant');
+  const problemSource: ProblemSource | 'both' | null =
+    hasCcProblem && hasRestProblem ? 'both' : hasCcProblem ? 'call_center' : hasRestProblem ? 'restaurant' : null;
+
   // Reset state when opening a new order - automatically activate live call timer
   useEffect(() => {
     if (order) {
       setCallResult(null);
-      setProblemSource(null);
-      setProblemType('');
-      setProblemTypeRest('');
+      setProblemItems([]);
       setResolutionHow('');
       setNewOrderNumber('');
       setOldOrderNumber(allOrders.find((o) => o.id === order.replacementForOrderId)?.orderNumber || order.orderNumber);
       setProblemDetails('');
       setProblemResolutionMode(null);
-      setCompensationType('');
-      setCompensationDetails('');
+      setCompChoice(EMPTY_COMPENSATION);
       setExecutingCompensationProblem(null);
       setExecAppliedOrderNumber('');
       setExecNotes('');
@@ -153,12 +129,10 @@ export const CustomerCallModal: React.FC = () => {
 
       if (e.key === '1') {
         setCallResult('tamam');
-        setProblemSource(null);
       } else if (e.key === '2') {
         setCallResult('problem');
       } else if (e.key === '3') {
         setCallResult('no_answer');
-        setProblemSource(null);
       }
     };
 
@@ -222,16 +196,8 @@ export const CustomerCallModal: React.FC = () => {
     }
 
     if (callResult === 'problem') {
-      if (!problemSource) {
-        setValidationError('يرجى تحديد جهة المشكلة (الكول سنتر أو المطعم)');
-        return;
-      }
-      if (!problemType) {
-        setValidationError('يرجى تحديد نوع المشكلة');
-        return;
-      }
-      if (problemSource === 'both' && !problemTypeRest) {
-        setValidationError('يرجى تحديد نوع مشكلة المطعم كمان (المشكلة من الاتنين)');
+      if (problemItems.length === 0) {
+        setValidationError('يرجى اختيار مشكلة واحدة على الأقل (تقدر تختار أكتر من مشكلة)');
         return;
       }
       if (!problemResolutionMode) {
@@ -247,12 +213,8 @@ export const CustomerCallModal: React.FC = () => {
           setValidationError('يرجى كتابة كيف تم حل المشكلة (إجباري)');
           return;
         }
-        if (!compensationType) {
-          setValidationError('يرجى اختيار نوع التعويض والإرضاء للعميل (إجباري)');
-          return;
-        }
-        if (!compensationDetails.trim()) {
-          setValidationError('يرجى كتابة تفاصيل وقيمة التعويض المقدم للعميل (إجباري)');
+        if (!compChoice.optionId) {
+          setValidationError('يرجى اختيار التعويض والإرضاء المقدم للعميل (إجباري)');
           return;
         }
       }
@@ -266,21 +228,22 @@ export const CustomerCallModal: React.FC = () => {
     savingRef.current = true;
     let nextId: string | null = null;
     try {
+    const comp = problemResolutionMode === 'resolved_on_call' ? resolveCompensation(compChoice, compCatalog) : null;
     nextId = await submitCallResult(order.id, {
       result: callResult,
       notes: notes.trim() || undefined,
-      problemSource: problemSource === 'both' ? 'call_center' : problemSource || undefined,
-      additionalProblem: problemSource === 'both' ? { source: 'restaurant', type: problemTypeRest } : undefined,
+      problemSource: problemItems[0]?.source,
+      problemItems,
       resolutionDetails: resolutionHow.trim() || undefined,
       oldOrderNumber: oldOrderNumber.trim() || undefined,
       newOrderNumber: newOrderNumber.trim() || undefined,
-      problemType: problemType || undefined,
+      problemType: problemItems[0]?.type,
       problemDetails: problemDetails.trim() || undefined,
       problemResolutionMode: problemResolutionMode || undefined,
       callDurationSeconds: durationSeconds,
       customerRating: callResult === 'tamam' ? customerRating : Math.min(2, customerRating),
-      compensationType: problemResolutionMode === 'resolved_on_call' && compensationType ? compensationType : undefined,
-      compensationDetails: problemResolutionMode === 'resolved_on_call' ? compensationDetails.trim() : undefined,
+      compensationType: comp ? comp.type : undefined,
+      compensationDetails: comp ? comp.details : undefined,
       compensationStatus: problemResolutionMode === 'resolved_on_call' ? 'pending_compensation' : undefined,
     });
     } finally {
@@ -612,8 +575,7 @@ export const CustomerCallModal: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setCallResult('tamam');
-                  setProblemSource(null);
-                  setProblemType('');
+                  setProblemItems([]);
                   setProblemDetails('');
                 }}
                 className={`p-3.5 rounded-xl border-2 flex items-center justify-center gap-2.5 font-display font-bold text-base transition-all cursor-pointer ${
@@ -674,7 +636,6 @@ export const CustomerCallModal: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setCallResult('no_answer');
-                    setProblemSource(null);
                   }}
                   className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                     callResult === 'no_answer'
@@ -689,7 +650,6 @@ export const CustomerCallModal: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setCallResult('unavailable');
-                    setProblemSource(null);
                   }}
                   className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                     callResult === 'unavailable'
@@ -704,7 +664,6 @@ export const CustomerCallModal: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setCallResult('callback_requested');
-                    setProblemSource(null);
                   }}
                   className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                     callResult === 'callback_requested'
@@ -722,115 +681,10 @@ export const CustomerCallModal: React.FC = () => {
               <div className="mt-3 p-4 bg-red-50/70 border border-red-200 rounded-xl space-y-3.5 animate-in fade-in duration-150">
                 <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
                   <AlertCircleIcon size={16} className="text-red-600" />
-                  <span>المشكلة من مين؟</span>
+                  <span>إيه المشكلة؟ (اختار واحدة أو أكتر)</span>
                 </h4>
 
-                <div className="grid grid-cols-3 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProblemSource('call_center');
-                      setProblemType('');
-                    }}
-                    className={`p-2.5 rounded-xl border flex items-center justify-center gap-2 font-bold text-xs cursor-pointer transition-all ${
-                      problemSource === 'call_center'
-                        ? 'bg-red-600 text-white border-red-700 shadow-xs'
-                        : 'bg-white hover:bg-red-50 text-slate-800 border-red-200'
-                    }`}
-                  >
-                    <HeadsetIcon size={16} />
-                    <span>الكول سنتر</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProblemSource('restaurant');
-                      setProblemType('');
-                      setProblemTypeRest('');
-                    }}
-                    className={`p-2.5 rounded-xl border flex items-center justify-center gap-2 font-bold text-xs cursor-pointer transition-all ${
-                      problemSource === 'restaurant'
-                        ? 'bg-red-600 text-white border-red-700 shadow-xs'
-                        : 'bg-white hover:bg-red-50 text-slate-800 border-red-200'
-                    }`}
-                  >
-                    <UtensilsIcon size={16} />
-                    <span>المطعم / الفرع</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProblemSource('both');
-                      setProblemType('');
-                      setProblemTypeRest('');
-                    }}
-                    className={`p-2.5 rounded-xl border flex items-center justify-center gap-2 font-bold text-xs cursor-pointer transition-all ${
-                      problemSource === 'both'
-                        ? 'bg-red-600 text-white border-red-700 shadow-xs'
-                        : 'bg-white hover:bg-red-50 text-slate-800 border-red-200'
-                    }`}
-                  >
-                    <span>الاتنين معاً</span>
-                  </button>
-                </div>
-
-                {problemSource === 'both' && (
-                  <p className="text-2xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    تنبيه: اختيار «الاتنين معاً» هيسجّل تذكرتين منفصلتين (واحدة على الكول سنتر وواحدة على الفرع). لو المشكلة من جهة واحدة اختار الجهة دي بس.
-                  </p>
-                )}
-
-                {(problemSource === 'call_center' || problemSource === 'both') && (
-                  <div className="space-y-1.5 pt-2 border-t border-red-200">
-                    <label className="block text-2xs font-bold text-slate-700">
-                      حدد نوع خطأ الكول سنتر:
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      {CALL_CENTER_PROBLEMS.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setProblemType(item.id)}
-                          className={`p-2 text-right rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center justify-between ${
-                            problemType === item.id
-                              ? 'bg-red-700 text-white border-red-800'
-                              : 'bg-white hover:bg-red-50 text-slate-800 border-slate-200'
-                          }`}
-                        >
-                          <span>{item.label}</span>
-                          {problemType === item.id && <CheckIcon size={13} />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {(problemSource === 'restaurant' || problemSource === 'both') && (
-                  <div className="space-y-1.5 pt-2 border-t border-red-200">
-                    <label className="block text-2xs font-bold text-slate-700">
-                      حدد نوع مشكلة المطعم / التحضير:
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      {RESTAURANT_PROBLEMS.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => (problemSource === 'both' ? setProblemTypeRest(item.id) : setProblemType(item.id))}
-                          className={`p-2 text-right rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center justify-between ${
-                            (problemSource === 'both' ? problemTypeRest : problemType) === item.id
-                              ? 'bg-red-700 text-white border-red-800'
-                              : 'bg-white hover:bg-red-50 text-slate-800 border-slate-200'
-                          }`}
-                        >
-                          <span>{item.label}</span>
-                          {(problemSource === 'both' ? problemTypeRest : problemType) === item.id && <CheckIcon size={13} />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <ProblemTypePicker value={problemItems} onChange={setProblemItems} />
 
                 {problemSource && (
                   <div className="pt-1.5">
@@ -848,7 +702,7 @@ export const CustomerCallModal: React.FC = () => {
                 )}
 
                 {/* 2 Decisive Problem Resolution Options */}
-                {problemSource && problemType && (problemSource !== 'both' || problemTypeRest) && (
+                {problemItems.length > 0 && (
                   <div className="pt-3 border-t border-red-200/90 space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="block text-xs font-black text-slate-900">
@@ -949,76 +803,14 @@ export const CustomerCallModal: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Mandatory Compensation Details Section (Requirement 1) */}
+                    {/* Unified compensation (same catalog/picker as every other screen) */}
                     {problemResolutionMode === 'resolved_on_call' && (
-                      <div className="mt-3 p-4 bg-purple-50/90 border-2 border-purple-300 rounded-2xl space-y-3.5 animate-in fade-in duration-200">
-                        <div className="flex items-center justify-between border-b border-purple-200 pb-2">
-                          <div className="flex items-center gap-2">
-                            <SparklesIcon size={18} className="text-purple-700" />
-                            <h4 className="font-black text-xs sm:text-sm text-purple-950">
-                              تفاصيل التعويض والإرضاء (إجباري):
-                            </h4>
-                          </div>
-                          <span className="text-3xs font-extrabold bg-purple-200 text-purple-900 px-2.5 py-0.5 rounded-full">
-                            دورة تعويض العميل
-                          </span>
-                        </div>
-
-                        {/* 1. نوع التعويض (قائمة اختيار سريعة) */}
-                        <div>
-                          <label className="block text-2xs font-black text-purple-950 mb-1.5">
-                            1. نوع التعويض (اختر نوع الإرضاء المناسب):
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {COMPENSATION_TYPES.map((ct) => (
-                              <button
-                                key={ct.id}
-                                type="button"
-                                onClick={() => setCompensationType(ct.id)}
-                                className={`p-2.5 rounded-xl border text-right text-xs font-bold transition-all cursor-pointer flex items-center justify-between gap-2 ${
-                                  compensationType === ct.id
-                                    ? 'bg-purple-700 text-white border-purple-800 shadow-xs ring-2 ring-purple-400/40'
-                                    : 'bg-white hover:bg-purple-100/70 text-slate-800 border-purple-200'
-                                }`}
-                              >
-                                <span>{ct.label}</span>
-                                {compensationType === ct.id && (
-                                  <CheckIcon size={14} className="shrink-0" />
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* 2. تفاصيل وقيمة التعويض (حقل نصي إجباري) */}
-                        <div>
-                          <label className="block text-2xs font-black text-purple-950 mb-1.5">
-                            2. تفاصيل وقيمة التعويض (حقل نصي إجباري):
-                          </label>
-                          <textarea
-                            value={compensationDetails}
-                            onChange={(e) => setCompensationDetails(e.target.value)}
-                            placeholder="مثال: خصم 20% على الأوردر القادم أو ساندوتش فاهيتا مجاني في الأوردر التالي أو استرجاع 85 جنيه كاش..."
-                            rows={2}
-                            className="w-full p-2.5 bg-white border border-purple-300 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
-                          />
-                        </div>
-
-                        {/* 3. حالة تنفيذ التعويض الأولية */}
-                        <div className="bg-white/90 p-3 rounded-xl border border-purple-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                          <div className="text-2xs text-purple-900">
-                            <span className="font-black block text-purple-950">
-                              3. حالة تنفيذ التعويض الأولية:
-                            </span>
-                            <span className="text-slate-600">
-                              سيتم توثيق التعويض فوراً، ويظهر تنبيه عريض باللون البنفسجي لأي موظف يتحدث مع العميل لاحقاً لحين تأكيد استلامه للتعويض.
-                            </span>
-                          </div>
-                          <span className="px-3 py-1 rounded-full text-2xs font-black bg-purple-700 text-white shadow-xs shrink-0 whitespace-nowrap">
-                            تعويض معلق التنفيذ - Pending Compensation
-                          </span>
-                        </div>
-                      </div>
+                      <CompensationPicker
+                        value={compChoice}
+                        onChange={setCompChoice}
+                        allowNone={false}
+                        title="تعويض وإرضاء العميل (إجباري)"
+                      />
                     )}
                   </div>
                 )}

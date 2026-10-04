@@ -1,4 +1,5 @@
 import { PasswordManager } from './PasswordManager';
+import { CompensationCatalogManager } from './CompensationCatalogManager';
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -324,6 +325,8 @@ export const UsersSettingsView: React.FC = () => {
               )}
             </form>
           </div>
+
+          <CompensationCatalogManager />
 
           {/* Database Reset Danger Zone */}
           <div className="bg-red-50/50 rounded-2xl border border-red-200 p-5 space-y-3 text-xs">

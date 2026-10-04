@@ -64,3 +64,31 @@ export const PROBLEM_STATUS_LABEL: Record<string, string> = {
 
 export const isProblemUnresolved = (status: string): boolean =>
   ['open', 'escalated', 'in_progress', 'pending_compensation'].includes(status);
+
+// Labelled option lists, shared by every screen that logs a problem (call modal + inbound complaint).
+export const CALL_CENTER_PROBLEM_OPTIONS: { id: string; label: string }[] = [
+  { id: 'order_wrong', label: 'الطلب اتسجل غلط بالكامل' },
+  { id: 'item_wrong', label: 'صنف اتسجل غلط' },
+  { id: 'quantity_wrong', label: 'الكمية اتسجلت غلط' },
+  { id: 'address_wrong', label: 'العنوان اتسجل غلط' },
+  { id: 'phone_wrong', label: 'رقم الهاتف اتسجل غلط' },
+  { id: 'note_missed', label: 'ملاحظة العميل لم يتم تسجيلها' },
+  { id: 'unavailable_confirmed', label: 'تم تأكيد صنف غير متاح' },
+  { id: 'communication_issue', label: 'مشكلة في أسلوب التواصل مع العميل' },
+  { id: 'other', label: 'أخرى (اكتب التفاصيل)' },
+];
+
+export const RESTAURANT_PROBLEM_OPTIONS: { id: string; label: string }[] = [
+  { id: 'item_missing', label: 'صنف ناقص في الطلب' },
+  { id: 'item_wrong', label: 'صنف غلط مستلم' },
+  { id: 'addon_missed', label: 'إضافة لم يتم تنفيذها' },
+  { id: 'removal_missed', label: 'إزالة صنف/مكون لم تنفذ' },
+  { id: 'mismatched_order', label: 'الطلب غير مطابق لما تم طلبه' },
+  { id: 'food_quality', label: 'مستوى وجودة الأكل غير مرضية' },
+  { id: 'food_cold', label: 'الأكل وصل بارد' },
+  { id: 'insufficient_quantity', label: 'الكمية وحجم الحصة غير كافية' },
+  { id: 'packaging_issue', label: 'مشكلة في التغليف والتقفيل' },
+  { id: 'preparation_delay', label: 'تأخير كبير في تجهيز الطلب' },
+  { id: 'bill_issue', label: 'مشكلة في حساب الفاتورة والسعر' },
+  { id: 'other', label: 'أخرى (اكتب التفاصيل)' },
+];

@@ -150,8 +150,7 @@ interface AppContextType {
     orderId: string | null,
     data: {
       guest?: { phone: string; name?: string; branch?: string };
-      source: ProblemSource;
-      type: string;
+      items: { source: ProblemSource; type: string }[];
       details: string;
       mode: 'resolved_on_call' | 'escalated';
       resolutionDetails?: string;
@@ -169,6 +168,7 @@ interface AppContextType {
       problemDetails?: string;
       problemResolutionMode?: 'resolved_on_call' | 'escalated';
       additionalProblem?: { source: ProblemSource; type: string };
+      problemItems?: { source: ProblemSource; type: string }[];
       resolutionDetails?: string;
       oldOrderNumber?: string;
       newOrderNumber?: string;
@@ -189,7 +189,8 @@ interface AppContextType {
   updateProblemStatus: (
     problemId: string,
     newStatus: ProblemStatus,
-    resolutionNotes?: string
+    resolutionNotes?: string,
+    compensation?: { type: CompensationType; details: string }
   ) => Promise<boolean>;
   confirmCompensationExecuted: (
     problemId: string,
@@ -1099,6 +1100,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       problemDetails?: string;
       problemResolutionMode?: 'resolved_on_call' | 'escalated';
       additionalProblem?: { source: ProblemSource; type: string };
+      problemItems?: { source: ProblemSource; type: string }[];
       resolutionDetails?: string;
       oldOrderNumber?: string;
       newOrderNumber?: string;
@@ -1179,8 +1181,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     // 2. If problem, record in problems table
+    // One ticket per selected problem (multi-select). Falls back to the old single/dual shape.
     const problemItems: { source: ProblemSource; type: string }[] =
-      data.result === 'problem' && data.problemSource && data.problemType
+      data.result !== 'problem'
+        ? []
+        : data.problemItems && data.problemItems.length > 0
+        ? data.problemItems
+        : data.problemSource && data.problemType
         ? [{ source: data.problemSource, type: data.problemType }, ...(data.additionalProblem ? [data.additionalProblem] : [])]
         : [];
     for (const item of problemItems) {
@@ -1440,34 +1447,56 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateProblemStatus = async (
     problemId: string,
     newStatus: ProblemStatus,
-    resolutionNotes?: string
+    resolutionNotes?: string,
+    compensation?: { type: CompensationType; details: string }
   ): Promise<boolean> => {
     const nowIso = new Date().toISOString();
     const previous = problems.find((p) => p.id === problemId);
-    const isFinal = newStatus === 'resolved' || newStatus === 'closed';
+    // "Resolved + compensated" with a compensation still to be handed over stays pending
+    // until the customer actually receives it (confirmCompensationExecuted closes the loop).
+    const compPending = Boolean(compensation) && newStatus === 'resolved';
+    const effectiveStatus: ProblemStatus = compPending ? 'pending_compensation' : newStatus;
+    const isFinal = !compPending && (newStatus === 'resolved' || newStatus === 'closed');
 
     setProblems((prev) =>
       prev.map((p) =>
         p.id === problemId
           ? {
               ...p,
-              status: newStatus,
+              status: effectiveStatus,
               resolvedByUserId: isFinal ? currentUser?.id : p.resolvedByUserId,
               resolvedByUserName: isFinal ? currentUser?.name : p.resolvedByUserName,
               resolutionNotes: resolutionNotes || p.resolutionNotes,
               resolvedAt: isFinal ? nowIso : p.resolvedAt,
+              ...(compPending && compensation
+                ? {
+                    hasCompensation: true,
+                    compensationType: compensation.type,
+                    compensationDetails: compensation.details,
+                    compensationStatus: 'pending_compensation' as CompensationStatus,
+                    compensationPromisedAt: nowIso,
+                    compensationPromisedByUserId: currentUser?.id,
+                    compensationPromisedByUserName: currentUser?.name,
+                  }
+                : {}),
             }
           : p
       )
     );
 
     const payload: Record<string, unknown> = {
-      status: mapProblemStatusToDb(newStatus),
+      status: mapProblemStatusToDb(effectiveStatus),
       resolved_by: isFinal ? currentUser?.id || null : null,
       resolved_at: isFinal ? nowIso : null,
     };
     // Only overwrite the stored resolution text when a new one was actually given
     if (resolutionNotes) payload.manager_response = resolutionNotes;
+    if (compPending && compensation) {
+      payload.has_compensation = true;
+      payload.compensation_type = mapCompensationTypeToDb(compensation.type);
+      payload.compensation_details = compensation.details;
+      payload.compensation_status = mapCompensationStatusToDb('pending_compensation');
+    }
 
     // supabase-js does NOT throw on failure - it returns { error }. Check it explicitly.
     const { error } = await supabase.from('problems').update(payload).eq('id', problemId);
@@ -1482,7 +1511,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAuditLog(
       'تحديث حالة مشكلة',
       'مشاكل',
-      `تم تغيير حالة المشكلة (${problemId}) إلى (${newStatus})`,
+      `تم تغيير حالة المشكلة (${problemId}) إلى (${effectiveStatus})${compensation ? ` مع تعويض: ${compensation.details}` : ''}`,
       problemId
     );
     return true;
@@ -1759,8 +1788,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     orderId: string | null,
     data: {
       guest?: { phone: string; name?: string; branch?: string };
-      source: ProblemSource;
-      type: string;
+      items: { source: ProblemSource; type: string }[];
       details: string;
       mode: 'resolved_on_call' | 'escalated';
       resolutionDetails?: string;
@@ -1780,12 +1808,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const nowIso = new Date().toISOString();
     const isResolved = data.mode === 'resolved_on_call';
     const hasComp = Boolean(data.compensationType);
-    const compStatus: CompensationStatus | undefined = hasComp ? 'pending_compensation' : undefined;
-    const status: ProblemStatus = isResolved
-      ? hasComp
-        ? 'pending_compensation'
-        : 'resolved_on_call'
-      : 'escalated';
     const details = `[شكوى واردة] ${data.details.trim()}`;
     const resolutionText = isResolved
       ? data.resolutionDetails?.trim() ||
@@ -1794,81 +1816,103 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : 'تم حل الشكوى وإرضاء العميل أثناء المكالمة')
       : undefined;
 
-    // An inbound complaint is not a follow-up call: it only creates a problem
-    // ticket and never changes the order's call status or queue.
-    const { data: insRow, error } = await supabase
-      .from('problems')
-      .insert({
-        order_id: order ? order.id : null,
-        ...(order
-          ? {}
-          : {
-              customer_name: guestName,
-              customer_phone: guestPhone,
-              branch_name: guestBranch || null,
-            }),
-        agent_id: currentUser?.id || null,
-        source: data.source,
-        problem_type: data.type,
-        custom_details: details,
-        manager_response: resolutionText || null,
-        status: mapProblemStatusToDb(status, !isResolved),
-        is_escalated: !isResolved,
-        escalated_at: !isResolved ? nowIso : null,
-        resolved_by: isResolved ? currentUser?.id || null : null,
-        resolved_at: isResolved && !hasComp ? nowIso : null,
-        has_compensation: hasComp,
-        compensation_type: mapCompensationTypeToDb(data.compensationType),
-        compensation_details: data.compensationDetails || null,
-        compensation_status: mapCompensationStatusToDb(compStatus),
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error('Could not insert inbound complaint:', error);
-      return { success: false, error: error.message };
+    if (!data.items || data.items.length === 0) {
+      return { success: false, error: 'اختار مشكلة واحدة على الأقل' };
     }
 
-    const problemRecord: Problem = {
-      id: insRow?.id || `prob-${Date.now()}`,
-      callId: '',
-      orderId: order ? order.id : '',
-      orderNumber: order ? order.orderNumber : '',
-      customerName: order ? order.customerName : guestName,
-      customerPhone: order ? order.customerPhone : guestPhone,
-      branchName: order ? order.branchName : guestBranch || 'الرئيسي',
-      source: data.source,
-      type: data.type,
-      details,
-      status,
-      isEscalated: !isResolved,
-      resolutionType: isResolved ? 'resolved_on_call' : 'escalated_to_management',
-      reportedByUserId: currentUser?.id || 'sys',
-      reportedByUserName: currentUser?.name || 'مستخدم',
-      resolvedByUserId: isResolved ? currentUser?.id : undefined,
-      resolvedByUserName: isResolved ? currentUser?.name : undefined,
-      resolutionNotes: resolutionText,
-      resolvedAt: isResolved && !hasComp ? nowIso : undefined,
-      createdAt: nowIso,
-      hasCompensation: hasComp,
-      compensationType: data.compensationType,
-      compensationDetails: data.compensationDetails,
-      compensationStatus: compStatus,
-      compensationPromisedAt: hasComp ? nowIso : undefined,
-      compensationPromisedByUserId: hasComp ? currentUser?.id : undefined,
-      compensationPromisedByUserName: hasComp ? currentUser?.name : undefined,
-    };
-    setProblems((prev) => (prev.some((p) => p.id === problemRecord.id) ? prev : [problemRecord, ...prev]));
+    // An inbound complaint is not a follow-up call: it only creates problem tickets
+    // and never changes the order's call status, the queue or the feedback flow.
+    // One ticket per selected problem; the compensation is attached to the first one only.
+    let savedCount = 0;
+    let lastError = '';
+    for (let i = 0; i < data.items.length; i++) {
+      const item = data.items[i];
+      const isFirst = i === 0;
+      const rowHasComp = hasComp && isFirst;
+      const rowCompStatus: CompensationStatus | undefined = rowHasComp ? 'pending_compensation' : undefined;
+      const rowStatus: ProblemStatus = isResolved ? (rowHasComp ? 'pending_compensation' : 'resolved_on_call') : 'escalated';
 
-    addAuditLog(
-      'تسجيل شكوى واردة',
-      'مشاكل',
-      order
-        ? `شكوى واردة من العميل (${order.customerName}) على الأوردر ${order.orderNumber}`
-        : `شكوى واردة من عميل غير مسجل (${guestName} - ${guestPhone})`,
-      problemRecord.id
-    );
+      const { data: insRow, error } = await supabase
+        .from('problems')
+        .insert({
+          order_id: order ? order.id : null,
+          ...(order
+            ? {}
+            : {
+                customer_name: guestName,
+                customer_phone: guestPhone,
+                branch_name: guestBranch || null,
+              }),
+          agent_id: currentUser?.id || null,
+          source: item.source,
+          problem_type: item.type,
+          custom_details: details,
+          manager_response: resolutionText || null,
+          status: mapProblemStatusToDb(rowStatus, !isResolved),
+          is_escalated: !isResolved,
+          escalated_at: !isResolved ? nowIso : null,
+          resolved_by: isResolved ? currentUser?.id || null : null,
+          resolved_at: isResolved && !rowHasComp ? nowIso : null,
+          has_compensation: rowHasComp,
+          compensation_type: rowHasComp ? mapCompensationTypeToDb(data.compensationType) : null,
+          compensation_details: rowHasComp ? data.compensationDetails || null : null,
+          compensation_status: mapCompensationStatusToDb(rowCompStatus),
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        console.error('Could not insert inbound complaint:', error);
+        lastError = error.message;
+        continue;
+      }
+      savedCount++;
+
+      const problemRecord: Problem = {
+        id: insRow?.id || `prob-${Date.now()}-${i}`,
+        callId: '',
+        orderId: order ? order.id : '',
+        orderNumber: order ? order.orderNumber : '',
+        customerName: order ? order.customerName : guestName,
+        customerPhone: order ? order.customerPhone : guestPhone,
+        branchName: order ? order.branchName : guestBranch || 'الرئيسي',
+        source: item.source,
+        type: item.type,
+        details,
+        status: rowStatus,
+        isEscalated: !isResolved,
+        resolutionType: isResolved ? 'resolved_on_call' : 'escalated_to_management',
+        reportedByUserId: currentUser?.id || 'sys',
+        reportedByUserName: currentUser?.name || 'مستخدم',
+        resolvedByUserId: isResolved ? currentUser?.id : undefined,
+        resolvedByUserName: isResolved ? currentUser?.name : undefined,
+        resolutionNotes: resolutionText,
+        resolvedAt: isResolved && !rowHasComp ? nowIso : undefined,
+        createdAt: nowIso,
+        hasCompensation: rowHasComp,
+        compensationType: rowHasComp ? data.compensationType : undefined,
+        compensationDetails: rowHasComp ? data.compensationDetails : undefined,
+        compensationStatus: rowCompStatus,
+        compensationPromisedAt: rowHasComp ? nowIso : undefined,
+        compensationPromisedByUserId: rowHasComp ? currentUser?.id : undefined,
+        compensationPromisedByUserName: rowHasComp ? currentUser?.name : undefined,
+      };
+      setProblems((prev) => (prev.some((p) => p.id === problemRecord.id) ? prev : [problemRecord, ...prev]));
+
+      addAuditLog(
+        'تسجيل شكوى واردة',
+        'مشاكل',
+        order
+          ? `شكوى واردة من العميل (${order.customerName}) على الأوردر ${order.orderNumber}`
+          : `شكوى واردة من عميل غير مسجل (${guestName} - ${guestPhone})`,
+        problemRecord.id
+      );
+    }
+
+    if (savedCount === 0) return { success: false, error: lastError || 'تعذر حفظ الشكوى' };
+    if (savedCount < data.items.length) {
+      return { success: false, error: `اتحفظ ${savedCount} من ${data.items.length} تذكرة فقط: ${lastError}` };
+    }
     return { success: true };
   };
 
