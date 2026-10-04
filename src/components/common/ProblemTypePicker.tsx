@@ -19,41 +19,43 @@ export const ProblemTypePicker: React.FC<Props> = ({ value, onChange }) => {
   const toggle = (source: ProblemSource, type: string) =>
     onChange(has(source, type) ? value.filter((v) => !(v.source === source && v.type === type)) : [...value, { source, type }]);
 
-  const group = (title: string, source: ProblemSource, list: { id: string; label: string }[]) => (
-    <div className="space-y-1.5 pt-2 border-t border-red-200 first:border-t-0 first:pt-0">
-      <label className="block text-2xs font-bold text-slate-700">{title}</label>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-        {list.map((item) => {
-          const on = has(source, item.id);
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => toggle(source, item.id)}
-              aria-pressed={on}
-              className={`p-2 text-right rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center justify-between ${
-                on ? 'bg-red-700 text-white border-red-800' : 'bg-white hover:bg-red-50 text-slate-800 border-slate-200'
-              }`}
-            >
-              <span>{item.label}</span>
-              {on && <CheckIcon size={13} />}
-            </button>
-          );
-        })}
+  const group = (title: string, source: ProblemSource, list: { id: string; label: string }[]) => {
+    const count = value.filter((v) => v.source === source).length;
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-2xs font-black text-slate-700">{title}</label>
+          {count > 0 && <span className="text-3xs font-bold bg-red-600 text-white rounded-full px-1.5 py-0.5">{count}</span>}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {list.map((item) => {
+            const on = has(source, item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => toggle(source, item.id)}
+                aria-pressed={on}
+                className={`px-2.5 py-1.5 rounded-full text-2xs font-semibold border transition-all cursor-pointer inline-flex items-center gap-1 ${
+                  on ? 'bg-red-700 text-white border-red-800' : 'bg-white hover:bg-red-50 text-slate-700 border-slate-200'
+                }`}
+              >
+                {on && <CheckIcon size={11} />}
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-3">
-      <p className="text-2xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-        تقدر تختار أكتر من مشكلة (ومن الجهتين لو لزم). كل مشكلة بتتسجل كتذكرة منفصلة، والتعويض بيتسجل مرة واحدة على أول تذكرة.
-      </p>
-      {group('حدد نوع خطأ الكول سنتر:', 'call_center', CALL_CENTER_PROBLEM_OPTIONS)}
-      {group('حدد نوع مشكلة المطعم / التحضير:', 'restaurant', RESTAURANT_PROBLEM_OPTIONS)}
-      {value.length > 0 && (
-        <div className="text-2xs font-bold text-slate-600">تم اختيار {value.length} مشكلة</div>
-      )}
+      <p className="text-3xs text-slate-500">اختار أكتر من مشكلة لو لزم — كل واحدة تذكرة منفصلة، والتعويض على أول تذكرة.</p>
+      {group('خطأ الكول سنتر', 'call_center', CALL_CENTER_PROBLEM_OPTIONS)}
+      <div className="border-t border-red-100" />
+      {group('مشكلة المطعم / التحضير', 'restaurant', RESTAURANT_PROBLEM_OPTIONS)}
     </div>
   );
 };

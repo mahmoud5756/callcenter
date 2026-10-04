@@ -22,6 +22,7 @@ import { Problem, ProblemStatus } from '../../types';
 import { formatCompensationType } from '../../services/compensationHelpers';
 import { formatProblemType, cleanBranchName } from '../../services/problemLabels';
 import { ProblemDetailModal } from './ProblemDetailModal';
+import { groupProblems } from '../../services/problemGroups';
 
 export const ProblemManagementView: React.FC = () => {
   const {
@@ -52,17 +53,23 @@ export const ProblemManagementView: React.FC = () => {
   const [execAppliedOrderNumber, setExecAppliedOrderNumber] = useState<string>('');
   const [execNotes, setExecNotes] = useState<string>('');
 
-  const escalatedCount = useMemo(() => {
-    return problems.filter((p) => p.status === 'escalated' || (p.status === 'open' && p.isEscalated)).length;
-  }, [problems]);
+  // One ticket = one complaint (may contain several problems)
+  const groups = useMemo(() => groupProblems(problems), [problems]);
 
-  const pendingCompensationsCount = useMemo(() => {
-    return problems.filter((p) => p.compensationStatus === 'pending_compensation' || p.status === 'pending_compensation').length;
-  }, [problems]);
+  const escalatedCount = useMemo(
+    () => groups.filter((g) => g.items.some((p) => p.status === 'escalated' || (p.status === 'open' && p.isEscalated))).length,
+    [groups]
+  );
 
-  const compensatedCount = useMemo(() => {
-    return problems.filter((p) => p.compensationStatus === 'compensated' || p.status === 'compensated').length;
-  }, [problems]);
+  const pendingCompensationsCount = useMemo(
+    () => groups.filter((g) => g.items.some((p) => p.compensationStatus === 'pending_compensation' || p.status === 'pending_compensation')).length,
+    [groups]
+  );
+
+  const compensatedCount = useMemo(
+    () => groups.filter((g) => g.items.some((p) => p.compensationStatus === 'compensated' || p.status === 'compensated')).length,
+    [groups]
+  );
 
   if (problems.length === 0) {
     return (
@@ -90,8 +97,8 @@ export const ProblemManagementView: React.FC = () => {
     return Array.from(set);
   }, [problems]);
 
-  const filteredProblems = useMemo(() => {
-    return problems.filter((problem) => {
+  const filteredGroups = useMemo(() => {
+    const matches = (problem: Problem) => {
       const matchSearch =
         problem.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         problem.customerPhone.includes(searchTerm) ||
@@ -123,8 +130,9 @@ export const ProblemManagementView: React.FC = () => {
         branchFilter === 'all' || cleanBranchName(problem.branchName) === branchFilter;
 
       return matchSearch && matchSource && matchStatus && matchBranch;
-    });
-  }, [problems, dualKeys, searchTerm, sourceFilter, statusFilter, branchFilter]);
+    };
+    return groups.filter((g) => g.items.some(matches));
+  }, [groups, dualKeys, searchTerm, sourceFilter, statusFilter, branchFilter]);
 
   const handleConfirmCompensation = () => {
     if (!executingCompensationProblem) return;
@@ -217,7 +225,7 @@ export const ProblemManagementView: React.FC = () => {
                 إدارة ومتابعة تذاكر المشاكل
               </h1>
               <span className="px-2 py-0.5 rounded-full text-2xs font-bold bg-red-100 text-red-800 border border-red-200">
-                {problems.length} مشكلة
+                {groups.length} تذكرة
               </span>
               {escalatedCount > 0 && (
                 <span className="px-2 py-0.5 rounded-full text-2xs font-black bg-red-600 text-white shadow-xs">
@@ -250,7 +258,7 @@ export const ProblemManagementView: React.FC = () => {
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            جميع التذاكر ({problems.length})
+            جميع التذاكر ({groups.length})
           </button>
 
           <button
@@ -347,7 +355,7 @@ export const ProblemManagementView: React.FC = () => {
             onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500"
           >
-            <option value="all">جميع الحالات ({problems.length})</option>
+            <option value="all">جميع الحالات ({groups.length})</option>
             <option value="pending_action">المعلقة والمصعدة (تتطلب تدخل الإدارة)</option>
             <option value="pending_compensation">تعويضات معلقة التنفيذ ({pendingCompensationsCount})</option>
             <option value="compensated">تم تنفيذ التعويض بنجاح ({compensatedCount})</option>
@@ -392,16 +400,19 @@ export const ProblemManagementView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProblems.map((problem) => {
+              {filteredGroups.map((group) => {
+                const problem = group.primary;
+                const compP = group.compItem || problem;
+                const hasDualSource = group.items.some((i) => i.source === 'call_center') && group.items.some((i) => i.source === 'restaurant');
                 const statusBadge = getStatusBadge(problem.status, problem.isEscalated);
                 const compPending =
-                  problem.status === 'pending_compensation' || problem.compensationStatus === 'pending_compensation';
-                const compDone = problem.compensationStatus === 'compensated' || problem.status === 'compensated';
+                  compP.status === 'pending_compensation' || compP.compensationStatus === 'pending_compensation';
+                const compDone = compP.compensationStatus === 'compensated' || compP.status === 'compensated';
 
                 return (
                   <tr
-                    key={problem.id}
-                    onClick={() => setDetailId(problem.id)}
+                    key={group.id}
+                    onClick={() => setDetailId(group.id)}
                     className="hover:bg-red-50/40 transition-colors cursor-pointer"
                     title="اضغط لفتح تفاصيل التذكرة"
                   >
@@ -416,21 +427,41 @@ export const ProblemManagementView: React.FC = () => {
                     <td className="p-3.5 font-bold text-slate-700">فرع {cleanBranchName(problem.branchName)}</td>
 
                     <td className="p-3.5">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-2xs font-extrabold ${
-                          problem.source === 'call_center' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
-                        }`}
-                      >
-                        {problem.source === 'call_center' ? <HeadsetIcon size={12} /> : <UtensilsIcon size={12} />}
-                        <span>{problem.source === 'call_center' ? 'كول سنتر' : 'مطعم / فرع'}</span>
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        {group.items.some((i) => i.source === 'call_center') && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-2xs font-extrabold bg-red-100 text-red-800">
+                            <HeadsetIcon size={12} />
+                            <span>كول سنتر</span>
+                          </span>
+                        )}
+                        {group.items.some((i) => i.source === 'restaurant') && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-2xs font-extrabold bg-orange-100 text-orange-800">
+                            <UtensilsIcon size={12} />
+                            <span>مطعم / فرع</span>
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     <td className="p-3.5 max-w-xs">
-                      <div className="font-bold text-slate-900">{formatProblemType(problem.type)}</div>
-                      <p className="text-2xs text-slate-500 truncate max-w-[16rem]">
+                      <div className="flex flex-wrap gap-1">
+                        {group.items.map((i) => (
+                          <span
+                            key={i.id}
+                            className={`px-2 py-0.5 rounded-full text-2xs font-bold border ${
+                              i.source === 'call_center'
+                                ? 'bg-red-50 text-red-800 border-red-200'
+                                : 'bg-orange-50 text-orange-800 border-orange-200'
+                            }`}
+                          >
+                            {formatProblemType(i.type)}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-2xs text-slate-500 truncate max-w-[16rem] mt-1">
                         {problem.details === 'بدون تفاصيل' ? 'بدون تفاصيل' : problem.details}
                       </p>
+                      {hasDualSource && <span className="text-3xs font-bold text-amber-700">مشكلة من الجهتين</span>}
                     </td>
 
                     <td className="p-3.5">
@@ -442,7 +473,7 @@ export const ProblemManagementView: React.FC = () => {
                     </td>
 
                     <td className="p-3.5">
-                      {problem.hasCompensation || problem.compensationType ? (
+                      {group.compItem ? (
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-extrabold border ${
                             compDone

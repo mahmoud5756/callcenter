@@ -152,7 +152,8 @@ export type CompensationType =
   | 'discount_percentage'
   | 'cash_refund'
   | 'wallet_credit'
-  | 'verbal_apology';
+  | 'verbal_apology'
+  | 'custom'; // any admin-defined compensation (e.g. free delivery)
 
 export type CompensationStatus =
   | 'pending_compensation'

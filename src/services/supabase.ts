@@ -170,6 +170,7 @@ export const mapCompensationTypeToDb = (type?: CompensationType): string | null 
     case 'verbal_apology':
       return 'apology_courtesy';
     case 'wallet_credit':
+    case 'custom':
     default:
       return 'other';
   }
@@ -187,8 +188,9 @@ export const mapCompensationTypeFromDb = (dbType?: string): CompensationType | u
     case 'apology_courtesy':
       return 'verbal_apology';
     case 'other':
+      return 'custom';
     default:
-      return 'wallet_credit';
+      return 'custom';
   }
 };
 

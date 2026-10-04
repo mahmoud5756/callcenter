@@ -23,6 +23,8 @@ export const formatCompensationType = (type?: string): string => {
       return 'إضافة رصيد للمحفظة / نقاط';
     case 'verbal_apology':
       return 'اعتذار شفهي فقط وقبله العميل';
+    case 'custom':
+      return 'تعويض خاص';
     default:
       return type || 'تعويض غير محدد';
   }

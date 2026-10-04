@@ -22,7 +22,8 @@ export const DEFAULT_COMPENSATION_OPTIONS: CompensationOption[] = [
   { id: 'instant_replacement_delivery', label: 'إرسال صنف بديل فوراً مع دليفري سريع', type: 'instant_replacement_delivery', active: true },
   { id: 'discount_percentage', label: 'خصم نسبة مئوية (حدد النسبة في التفاصيل)', type: 'discount_percentage', active: true },
   { id: 'cash_refund', label: 'استرداد نقدي (Cash Refund)', type: 'cash_refund', active: true },
-  { id: 'wallet_credit', label: 'إضافة رصيد للمحفظة / نقاط', type: 'wallet_credit', active: true },
+  { id: 'wallet_credit', label: 'إضافة رصيد للمحفظة / نقاط', type: 'custom', active: true },
+  { id: 'free_delivery', label: 'توصيل مجاني', type: 'custom', active: true },
   { id: 'verbal_apology', label: 'اعتذار شفهي فقط وقبله العميل', type: 'verbal_apology', active: true },
 ];
 
@@ -34,7 +35,9 @@ const sanitize = (raw: unknown): CompensationOption[] | null => {
   const out: CompensationOption[] = [];
   for (const r of raw) {
     if (r && typeof r.id === 'string' && typeof r.label === 'string' && typeof r.type === 'string' && r.label.trim()) {
-      out.push({ id: r.id, label: r.label.trim(), type: r.type as CompensationType, active: r.active !== false });
+      // admin-created entries have no meaningful category: always 'custom' (fixes ones saved with a wrong default)
+      const type = String(r.id).startsWith('custom_') ? 'custom' : (r.type as CompensationType);
+      out.push({ id: r.id, label: r.label.trim(), type, active: r.active !== false });
     }
   }
   return out.length ? out : null;
@@ -73,7 +76,8 @@ const loadFromServer = async () => {
 };
 
 /** Admin only (enforced by the UI + RLS). Returns whether it was also saved to the shared database. */
-export const saveCompensationOptions = async (next: CompensationOption[]): Promise<{ shared: boolean }> => {
+export const saveCompensationOptions = async (input: CompensationOption[]): Promise<{ shared: boolean }> => {
+  const next = input.map((o) => (o.id.startsWith('custom_') ? { ...o, type: 'custom' as CompensationType } : o));
   options = next;
   try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   emit();

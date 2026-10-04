@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { SparklesIcon, PlusIcon, TrashIcon, CheckIcon } from '../icons/SvgIcons';
-import { COMPENSATION_TYPES } from '../../services/compensationHelpers';
 import {
   CompensationOption,
   DEFAULT_COMPENSATION_OPTIONS,
   saveCompensationOptions,
   useCompensationOptions,
 } from '../../services/compensationCatalog';
-import { CompensationType } from '../../types';
 
 /** Admin-only: controls the compensation choices every agent/manager sees on every screen. */
 export const CompensationCatalogManager: React.FC = () => {
@@ -24,7 +22,7 @@ export const CompensationCatalogManager: React.FC = () => {
   const add = () =>
     setRows((r) => [
       ...r,
-      { id: `custom_${Date.now().toString(36)}`, label: '', type: 'discount_percentage', active: true },
+      { id: `custom_${Date.now().toString(36)}`, label: '', type: 'custom', active: true },
     ]);
 
   const save = async () => {
@@ -52,8 +50,7 @@ export const CompensationCatalogManager: React.FC = () => {
         <span>خيارات التعويض (التحكم الكامل للأدمن)</span>
       </h4>
       <p className="text-slate-500 leading-relaxed">
-        القايمة دي هي نفسها اللي بتظهر في المكالمة، والشكوى الواردة، وتحديث حالة التذكرة. الخيار المعطّل بيختفي من الاختيار
-        لكن التذاكر القديمة بتفضل زي ما هي.
+        القايمة دي هي نفسها اللي بتظهر في المكالمة، والشكوى الواردة، وتحديث حالة التذكرة. اكتب اسم التعويض بس (مثال: توصيل مجاني) وهو اللي هيتسجل على التذكرة زي ما هو. الخيار المعطّل بيختفي من الاختيار لكن التذاكر القديمة بتفضل زي ما هي.
       </p>
 
       <div className="space-y-2">
@@ -66,16 +63,7 @@ export const CompensationCatalogManager: React.FC = () => {
               className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
             />
             <div className="flex items-center gap-2">
-              <select
-                value={r.type}
-                onChange={(e) => update(r.id, { type: e.target.value as CompensationType })}
-                className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-2xs"
-                title="التصنيف المحاسبي للتقارير"
-              >
-                {COMPENSATION_TYPES.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
-              </select>
+              <span className="flex-1" />
               <label className="flex items-center gap-1 text-2xs font-bold text-slate-700 cursor-pointer whitespace-nowrap">
                 <input type="checkbox" checked={r.active} onChange={(e) => update(r.id, { active: e.target.checked })} />
                 مفعّل

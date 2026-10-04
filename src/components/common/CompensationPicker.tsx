@@ -18,30 +18,30 @@ export const CompensationPicker: React.FC<Props> = ({ value, onChange, allowNone
   const options = useCompensationOptions().filter((o) => o.active);
 
   const btn = (selected: boolean) =>
-    `p-2.5 rounded-xl border text-right text-xs font-bold transition-all cursor-pointer flex items-center justify-between gap-2 ${
+    `px-2.5 py-1.5 rounded-full border text-2xs font-bold transition-all cursor-pointer inline-flex items-center gap-1 ${
       selected
         ? 'bg-purple-700 text-white border-purple-800 shadow-xs ring-2 ring-purple-400/40'
         : 'bg-white hover:bg-purple-100/70 text-slate-800 border-purple-200'
     }`;
 
   return (
-    <div className="p-3.5 bg-purple-50/80 border border-purple-200 rounded-2xl space-y-2.5">
+    <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-2xl space-y-2">
       <div className="flex items-center gap-2 text-purple-950">
         <SparklesIcon size={16} className="text-purple-700" />
         <span className="font-black text-xs">{title || 'التعويض / الإرضاء'}</span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {allowNone && (
           <button type="button" onClick={() => onChange({ optionId: '', note: '' })} className={btn(value.optionId === '')}>
             <span>بدون تعويض</span>
-            {value.optionId === '' && <CheckIcon size={14} className="shrink-0" />}
+            {value.optionId === '' && <CheckIcon size={12} className="shrink-0" />}
           </button>
         )}
         {options.map((o) => (
           <button key={o.id} type="button" onClick={() => onChange({ ...value, optionId: o.id })} className={btn(value.optionId === o.id)}>
             <span>{o.label}</span>
-            {value.optionId === o.id && <CheckIcon size={14} className="shrink-0" />}
+            {value.optionId === o.id && <CheckIcon size={12} className="shrink-0" />}
           </button>
         ))}
       </div>

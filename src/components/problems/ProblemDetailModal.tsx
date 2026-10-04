@@ -13,6 +13,7 @@ import {
   AlertTriangleIcon,
 } from '../icons/SvgIcons';
 import { formatProblemType, cleanBranchName, PROBLEM_STATUS_LABEL } from '../../services/problemLabels';
+import { groupProblems } from '../../services/problemGroups';
 import { formatCompensationType } from '../../services/compensationHelpers';
 import { formatItemName } from '../../services/arabicItemFixer';
 import { CompensationPicker } from '../common/CompensationPicker';
@@ -72,7 +73,13 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
   const { problems, allOrders, customerCalls, currentUser, updateProblemStatus } = useApp();
   const compCatalog = useCompensationOptions();
 
-  const problem = problems.find((p) => p.id === problemId);
+  const group = useMemo(
+    () => groupProblems(problems).find((g) => g.items.some((p) => p.id === problemId)),
+    [problems, problemId]
+  );
+  const problem = group?.primary;
+  const items = group?.items || [];
+  const compItem = group?.compItem;
   const order = useMemo(
     () => (problem?.orderId ? allOrders.find((o) => o.id === problem.orderId) : undefined),
     [problem?.orderId, allOrders]
@@ -125,8 +132,8 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
   );
 
   const siblings = useMemo(
-    () => (problem ? problems.filter((p) => p.id !== problem.id && problem.orderId && p.orderId === problem.orderId) : []),
-    [problems, problem]
+    () => (problem ? problems.filter((p) => !items.some((i) => i.id === p.id) && problem.orderId && p.orderId === problem.orderId) : []),
+    [problems, problem, group]
   );
 
   const customerHistory = useMemo(() => {
@@ -134,15 +141,16 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
     const ph = digits(problem.customerPhone);
     if (ph.length < 6) return [];
     return problems
-      .filter((p) => p.id !== problem.id && p.orderId !== problem.orderId && digits(p.customerPhone) === ph)
+      .filter((p) => !items.some((i) => i.id === p.id) && p.orderId !== problem.orderId && digits(p.customerPhone) === ph)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, 5);
-  }, [problems, problem]);
+  }, [problems, problem, group]);
 
   if (!problem) return null;
 
   const badge = getBadge(problem.status, problem.isEscalated);
-  const compPending = problem.status === 'pending_compensation' || problem.compensationStatus === 'pending_compensation';
+  const compShown = compItem || problem;
+  const compPending = compShown.status === 'pending_compensation' || compShown.compensationStatus === 'pending_compensation';
   const nextFollowUp = followUps.find((f) => f.nextFollowUpAt)?.nextFollowUpAt;
   const nextOverdue = nextFollowUp ? new Date(nextFollowUp).getTime() < Date.now() : false;
 
@@ -177,10 +185,21 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
     }
     setStatusSaving(true);
     const compensation =
-      targetStatus === 'resolved' && !problem.hasCompensation
+      targetStatus === 'resolved' && !compItem
         ? resolveCompensation(compChoice, compCatalog) || undefined
         : undefined;
-    const ok = await updateProblemStatus(problem.id, targetStatus, resolution.trim() || undefined, compensation);
+    // The whole complaint moves together: every problem inside it gets the same status.
+    // A newly added compensation is attached to the primary row only.
+    let ok = true;
+    for (const it of items) {
+      const done = await updateProblemStatus(
+        it.id,
+        targetStatus,
+        resolution.trim() || undefined,
+        it.id === problem.id ? compensation : undefined
+      );
+      if (!done) ok = false;
+    }
     if (ok) {
       const r = await addFollowUp({
         problemId: problem.id,
@@ -223,17 +242,9 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-black text-slate-900 text-base sm:text-lg">
-                {formatProblemType(problem.type)}
+                {items.length > 1 ? `شكوى بها ${items.length} مشاكل` : formatProblemType(problem.type)}
               </h2>
               <span className={`px-2.5 py-1 rounded-2xl text-2xs font-extrabold border ${badge.class}`}>{badge.label}</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-2xs font-extrabold ${
-                  problem.source === 'call_center' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
-                }`}
-              >
-                {problem.source === 'call_center' ? <HeadsetIcon size={12} /> : <UtensilsIcon size={12} />}
-                {problem.source === 'call_center' ? 'كول سنتر' : 'مطعم / فرع'}
-              </span>
             </div>
             <p className="text-2xs text-slate-500 mt-1">
               {problem.customerName || 'عميل'} · <span dir="ltr">{problem.customerPhone}</span>
@@ -255,6 +266,22 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
         <div className="p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-5 gap-4">
           {/* MAIN COLUMN */}
           <div className="lg:col-span-3 space-y-4">
+            <Section title={`المشاكل المسجلة (${items.length})`}>
+              <div className="flex flex-wrap gap-1.5">
+                {items.map((i) => (
+                  <span
+                    key={i.id}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                      i.source === 'call_center' ? 'bg-red-50 text-red-800 border-red-200' : 'bg-orange-50 text-orange-800 border-orange-200'
+                    }`}
+                  >
+                    {i.source === 'call_center' ? <HeadsetIcon size={12} /> : <UtensilsIcon size={12} />}
+                    {formatProblemType(i.type)}
+                  </span>
+                ))}
+              </div>
+            </Section>
+
             <Section title="تفاصيل الشكوى">
               <p className="text-xs text-slate-700 whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {problem.details === 'بدون تفاصيل' ? 'لم تُسجَّل تفاصيل للمشكلة' : problem.details}
@@ -278,24 +305,24 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
               )}
             </Section>
 
-            {(problem.hasCompensation || problem.compensationType) && (
+            {compItem && (
               <Section title="التعويض" tone="purple">
                 <div className="flex items-center gap-1.5 text-xs font-black text-purple-950">
                   <SparklesIcon size={14} className="text-purple-700" />
-                  {formatCompensationType(problem.compensationType)}
+                  {formatCompensationType(compShown.compensationType)}
                 </div>
-                <p className="text-xs text-purple-900 [overflow-wrap:anywhere]">{problem.compensationDetails || 'بدون تفاصيل إضافية'}</p>
+                <p className="text-xs text-purple-900 [overflow-wrap:anywhere]">{compShown.compensationDetails || 'بدون تفاصيل إضافية'}</p>
                 <div className="text-2xs text-purple-800">
-                  {problem.compensationStatus === 'compensated'
-                    ? `اتنفّذ${problem.compensationExecutedAt ? ` ${fmt(problem.compensationExecutedAt)}` : ''}${
-                        problem.compensationAppliedOrderNumber ? ` على أوردر #${problem.compensationAppliedOrderNumber}` : ''
+                  {compShown.compensationStatus === 'compensated'
+                    ? `اتنفّذ${compShown.compensationExecutedAt ? ` ${fmt(compShown.compensationExecutedAt)}` : ''}${
+                        compShown.compensationAppliedOrderNumber ? ` على أوردر #${compShown.compensationAppliedOrderNumber}` : ''
                       }`
                     : 'لسه معلّق لحين استلام العميل'}
                 </div>
                 {compPending && (
                   <button
                     type="button"
-                    onClick={() => onConfirmCompensation(problem)}
+                    onClick={() => onConfirmCompensation(compShown)}
                     className="px-3 py-2 bg-amber-300 hover:bg-amber-200 text-slate-950 font-black text-xs rounded-xl border border-amber-400 cursor-pointer flex items-center gap-1.5"
                   >
                     <CheckIcon size={14} />
@@ -371,7 +398,7 @@ export const ProblemDetailModal: React.FC<Props> = ({ problemId, onClose, onConf
                 {statusBtn('resolved', 'تم الحل والتعويض', 'bg-emerald-600 text-white border-emerald-700')}
                 {statusBtn('closed', 'إغلاق التذكرة', 'bg-slate-700 text-white border-slate-800')}
               </div>
-              {targetStatus === 'resolved' && !problem.hasCompensation && (
+              {targetStatus === 'resolved' && !compItem && (
                 <CompensationPicker value={compChoice} onChange={setCompChoice} title="تعويض العميل (اختياري)" />
               )}
               <textarea

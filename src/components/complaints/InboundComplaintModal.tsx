@@ -142,9 +142,9 @@ export const InboundComplaintModal: React.FC<Props> = ({ open, onClose }) => {
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-4">
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-4 flex flex-col max-h-[calc(100vh-2rem)]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-red-600 text-white flex items-center justify-center">
               <PhoneCallIcon size={18} />
@@ -176,7 +176,9 @@ export const InboundComplaintModal: React.FC<Props> = ({ open, onClose }) => {
             </p>
           </div>
         ) : (
-          <div className="p-5 space-y-5">
+          <>
+          <div className="flex-1 overflow-y-auto p-5 grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+          <div className="space-y-4">
             {/* Step 1: who is the customer */}
             <div className="space-y-2.5">
               <label className="text-xs font-bold text-slate-700">١. العميل</label>
@@ -297,22 +299,16 @@ export const InboundComplaintModal: React.FC<Props> = ({ open, onClose }) => {
               )}
             </div>
 
-            {/* Step 2: complaint */}
-            <div className={`space-y-3 ${hasCustomer ? '' : 'opacity-40 pointer-events-none'}`}>
-              <label className="text-xs font-bold text-slate-700">٢. الشكوى (اختار مشكلة أو أكتر)</label>
-
-              <div className="p-3 bg-red-50/60 border border-red-200 rounded-xl">
-                <ProblemTypePicker value={items} onChange={setItems} />
-              </div>
-
+            {/* what the customer said + how it was handled */}
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-700">٢. كلام العميل والإجراء</label>
               <textarea
                 value={details}
                 onChange={(e) => setDetails(e.target.value)}
-                rows={3}
+                rows={4}
                 placeholder="اكتب اللي العميل قاله بالتفصيل…"
                 className={inputCls}
               />
-
               <div className="grid grid-cols-2 gap-2">
                 {([
                   ['escalated', 'تصعيد للإدارة'],
@@ -332,7 +328,6 @@ export const InboundComplaintModal: React.FC<Props> = ({ open, onClose }) => {
                   </button>
                 ))}
               </div>
-
               {mode === 'resolved_on_call' && (
                 <textarea
                   value={resolutionDetails}
@@ -342,13 +337,32 @@ export const InboundComplaintModal: React.FC<Props> = ({ open, onClose }) => {
                   className={inputCls}
                 />
               )}
-
-              <CompensationPicker value={compChoice} onChange={setCompChoice} />
             </div>
+          </div>
 
+          {/* LEFT column: problems + compensation */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700">٣. المشكلة (اختار واحدة أو أكتر)</label>
+              <div className="p-3 bg-red-50/60 border border-red-200 rounded-xl">
+                <ProblemTypePicker value={items} onChange={setItems} />
+              </div>
+            </div>
+            <CompensationPicker value={compChoice} onChange={setCompChoice} />
+          </div>
+          </div>
+
+          {/* sticky footer */}
+          <div className="shrink-0 border-t border-slate-100 px-5 py-3 space-y-2 bg-white rounded-b-2xl">
             {error && <p className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-
-            <div className="flex items-center justify-end gap-2 pt-1">
+            {!canSave && !saving && (
+              <p className="text-2xs text-slate-400">
+                لازم: {!hasCustomer ? 'بيانات العميل' : ''}{!hasCustomer && (items.length === 0 || details.trim().length < 3) ? ' + ' : ''}
+                {items.length === 0 ? 'مشكلة واحدة على الأقل' : ''}{items.length === 0 && details.trim().length < 3 ? ' + ' : ''}
+                {details.trim().length < 3 ? 'كلام العميل' : ''}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={onClose}
@@ -361,12 +375,13 @@ export const InboundComplaintModal: React.FC<Props> = ({ open, onClose }) => {
                 type="button"
                 onClick={handleSave}
                 disabled={!canSave}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="px-6 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 {saving ? 'جاري الحفظ…' : 'تسجيل الشكوى'}
               </button>
             </div>
           </div>
+          </>
         )}
       </div>
     </div>
